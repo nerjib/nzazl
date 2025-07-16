@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Building } from "lucide-react"
 import { customBaseUrl } from "@/lib/https"
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState([])
   const [pagination, setPagination] = useState({ page: 0, size: 10 })
+  const [analytics, setAnalytics] = useState(null)
 
   const getPayments = async () => {
     const res = await axios.get(
@@ -22,11 +24,15 @@ export default function PaymentsPage() {
     setPayments(res.data.data)
   }
 
+  const getAnalytics = async () => {
+    const res = await axios.get(`${customBaseUrl.baseUrl}/api/v1/payments/totalpayments`)
+    setAnalytics(res.data.data[0])
+  }
+
   useEffect(() => {
     getPayments()
+    getAnalytics()
   }, [pagination])
-
-  const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -63,7 +69,9 @@ export default function PaymentsPage() {
             <div className="flex items-center space-x-4">
               <div className="text-right">
                 <div className="text-sm text-gray-600">Total Payments</div>
-                <div className="text-2xl font-bold text-green-600">₦{totalAmount.toLocaleString()}</div>
+                <div className="text-2xl font-bold text-green-600">
+                  ₦{analytics ? Number(analytics.sum).toLocaleString() : "0"}
+                </div>
               </div>
             </div>
           </div>
@@ -110,6 +118,20 @@ export default function PaymentsPage() {
                     </div>
                   )}
                 <div className="flex items-center justify-end space-x-2 py-4">
+                    <Select
+                      value={pagination.size}
+                      onValueChange={(value) => setPagination({ ...pagination, size: value })}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select page size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={10}>10 per page</SelectItem>
+                        <SelectItem value={20}>20 per page</SelectItem>
+                        <SelectItem value={50}>50 per page</SelectItem>
+                        <SelectItem value={100}>100 per page</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="outline"
                       size="sm"
