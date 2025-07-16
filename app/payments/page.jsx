@@ -5,6 +5,7 @@ import Link from "next/link"
 import axios from "axios"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -16,12 +17,19 @@ export default function PaymentsPage() {
   const [payments, setPayments] = useState([])
   const [pagination, setPagination] = useState({ page: 0, size: 10 })
   const [analytics, setAnalytics] = useState(null)
+  const [filter, setFilter] = useState({ type: "ippis", value: "" })
 
   const getPayments = async () => {
-    const res = await axios.get(
-      `${customBaseUrl.baseUrl}/api/v1/payments/paginated?page=${pagination.page}&size=${pagination.size}`
-    )
-    setPayments(res.data.data)
+    let url = `${customBaseUrl.baseUrl}/api/v1/payments/paginated?page=${pagination.page}&size=${pagination.size}`
+    if (filter.value) {
+      if (filter.type === "ippis") {
+        url = `${customBaseUrl.baseUrl}/api/v1/payments/single/customer/${filter.value}`
+      } else if (filter.type === "amount") {
+        url = `${customBaseUrl.baseUrl}/api/v1/payments/range/${filter.value}`
+      }
+    }
+    const res = await axios.get(url)
+    setPayments(res.data.data || res.data.data)
   }
 
   const getAnalytics = async () => {
@@ -86,6 +94,27 @@ export default function PaymentsPage() {
                 <CardHeader>
                   <CardTitle>All Payments ({payments.length})</CardTitle>
                   <CardDescription>Track all payment records</CardDescription>
+                  <div className="flex items-center space-x-4">
+                    <Select
+                      value={filter.type}
+                      onValueChange={(value) => setFilter({ ...filter, type: value })}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select filter type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ippis">IPPIS</SelectItem>
+                        <SelectItem value="amount">Amount</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder={`Filter by ${filter.type}`}
+                      value={filter.value}
+                      onChange={(e) => setFilter({ ...filter, value: e.target.value })}
+                      className="max-w-sm"
+                    />
+                    <Button onClick={getPayments}>Filter</Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <Table>
