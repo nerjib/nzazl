@@ -6,6 +6,7 @@ import axios from "axios"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -37,10 +38,39 @@ export default function PaymentsPage() {
     setAnalytics(res.data.data[0])
   }
 
+  const handleAddPayment = async (e) => {
+    e.preventDefault()
+    const formData = new FormData(e.target)
+    const data = Object.fromEntries(formData.entries())
+    await axios.post(`${customBaseUrl.baseUrl}/api/v1/payments`, data)
+    getPayments()
+  }
+
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const formData = new FormData()
+    formData.append("file", file)
+    await axios.post(`${customBaseUrl.baseUrl}/api/v1/excel/payments`, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    })
+    getPayments()
+  }
+
+  const handleRefund = async (e) => {
+    e.preventDefault()
+    const formData = new FormData(e.target)
+    const data = Object.fromEntries(formData.entries())
+    await axios.post(`${customBaseUrl.baseUrl}/api/v1/refunds`, data)
+    getPayments()
+  }
+
   useEffect(() => {
     getPayments()
     getAnalytics()
-  }, [pagination])
+  }, [pagination, filter.value === ""])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -87,6 +117,9 @@ export default function PaymentsPage() {
           <Tabs defaultValue="list" className="space-y-6">
             <TabsList>
               <TabsTrigger value="list">Payment List</TabsTrigger>
+              <TabsTrigger value="add">Add Payment</TabsTrigger>
+              <TabsTrigger value="bulk">Bulk Upload</TabsTrigger>
+              <TabsTrigger value="refund">Refund Payment</TabsTrigger>
             </TabsList>
 
             <TabsContent value="list">
@@ -114,6 +147,7 @@ export default function PaymentsPage() {
                       className="max-w-sm"
                     />
                     <Button onClick={getPayments}>Filter</Button>
+                    <Button onClick={() => setFilter({ type: "ippis", value: "" })}>Cancel</Button>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -146,7 +180,7 @@ export default function PaymentsPage() {
                       No payments found.
                     </div>
                   )}
-                <div className="flex items-center justify-end space-x-2 py-4">
+                  <div className="flex items-center justify-end space-x-2 py-4">
                     <Select
                       value={pagination.size}
                       onValueChange={(value) => setPagination({ ...pagination, size: value })}
@@ -177,6 +211,95 @@ export default function PaymentsPage() {
                       Next
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="add">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Add New Payment</CardTitle>
+                  <CardDescription>Record a new payment transaction</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleAddPayment} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="name">Customer Name</Label>
+                        <Input id="name" name="name" required />
+                      </div>
+                      <div>
+                        <Label htmlFor="ippis">IPPIS</Label>
+                        <Input id="ippis" name="ippis" required />
+                      </div>
+                      <div>
+                        <Label htmlFor="element">Element</Label>
+                        <Input id="element" name="element" required />
+                      </div>
+                      <div>
+                        <Label htmlFor="amount">Amount</Label>
+                        <Input id="amount" name="amount" type="number" required />
+                      </div>
+                      <div>
+                        <Label htmlFor="period">Period</Label>
+                        <Input id="period" name="period" type="date" required />
+                      </div>
+                      <div>
+                        <Label htmlFor="command">Command</Label>
+                        <Input id="command" name="command" required />
+                      </div>
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Add Payment
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="bulk">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Bulk Upload Payments</CardTitle>
+                  <CardDescription>
+                    Upload a CSV file with payment data.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="csvFile">CSV File</Label>
+                      <Input id="csvFile" type="file" accept=".csv" onChange={handleBulkUpload} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="refund">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Refund Payment</CardTitle>
+                  <CardDescription>Refund a payment by its reference number, IPPIS, and amount</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleRefund} className="space-y-6">
+                    <div>
+                      <Label htmlFor="refundRef">Payment Reference (Ref)</Label>
+                      <Input id="refundRef" name="ref" required />
+                    </div>
+                    <div>
+                      <Label htmlFor="refundIppis">IPPIS Number</Label>
+                      <Input id="refundIppis" name="ippis" required />
+                    </div>
+                    <div>
+                      <Label htmlFor="refundAmount">Amount</Label>
+                      <Input id="refundAmount" name="amount" type="number" required />
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Refund Payment
+                    </Button>
+                  </form>
                 </CardContent>
               </Card>
             </TabsContent>
