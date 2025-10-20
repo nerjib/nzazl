@@ -14,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Building, Plus, AlertTriangle, CheckCircle } from "lucide-react"
+import { httpGet, httpPost, httpPatch, customBaseUrl } from "@/lib/https"
+import axios from "axios"
 
 export default function RefundsPage() {
   const searchParams = useSearchParams()
@@ -35,17 +37,29 @@ export default function RefundsPage() {
   // Load initial data & optionally pre-fill the form (runs once)
   // -----------------------------------------------------------------
   useEffect(() => {
-    // Refunds
-    const savedRefunds = localStorage.getItem("refunds")
-    if (savedRefunds) setRefunds(JSON.parse(savedRefunds))
+    const fetchRefunds = async () => {
+      const response = await axios.get(`${customBaseUrl.baseUrl}/api/v1/refunds`)
+      if (response.data.status) {
+        setRefunds(response.data.data)
+      }
+    }
+    const fetchCustomers = async () => {
+      const response = await httpGet("", "/api/v1/customers")
+      if (response) {
+        setCustomers(response)
+      }
+    }
 
-    // Customers
-    const savedCustomers = localStorage.getItem("customers")
-    if (savedCustomers) setCustomers(JSON.parse(savedCustomers))
+    const fetchPayments = async () => {
+      const response = await httpGet("", "/api/v1/payments")
+      if (response) {
+        setPayments(response)
+      }
+    }
 
-    // Payments
-    const savedPayments = localStorage.getItem("payments")
-    if (savedPayments) setPayments(JSON.parse(savedPayments))
+    fetchRefunds()
+    fetchCustomers()
+    fetchPayments()
 
     // ---- Pre-fill refund form when coming from a customer profile ----
     const customerId = searchParams.get("customerId")
@@ -53,7 +67,10 @@ export default function RefundsPage() {
     const amount = searchParams.get("amount")
 
     if (customerId && propertyTitle && amount) {
-      const customer = JSON.parse(localStorage.getItem("customers") || "[]").find((c) => c.id === customerId) ?? {}
+      // We need to ensure customers are loaded before trying to find one
+      // This might require a different approach if customers are not immediately available
+      // For now, we'll assume customers are fetched quickly or handle potential undefined customer
+      const customer = customers.find((c) => c.id === customerId) ?? {}
 
       setNewRefund((prev) => ({
         ...prev, // keep any default values
@@ -66,18 +83,14 @@ export default function RefundsPage() {
     }
   }, []) //  <<–– run only once (dependency list is now empty)
 
-  const saveRefunds = (updatedRefunds) => {
-    setRefunds(updatedRefunds)
-    localStorage.setItem("refunds", JSON.stringify(updatedRefunds))
-  }
+  
 
-  const handleAddRefund = (e) => {
+  const handleAddRefund = async (e) => {
     e.preventDefault()
 
     const selectedCustomer = customers.find((c) => c.id === newRefund.customerId)
 
-    const refund = {
-      id: Date.now().toString(),
+    const refundData = {
       customerId: newRefund.customerId,
       customerName: selectedCustomer?.name || newRefund.customerName,
       propertyTitle: newRefund.propertyTitle,
@@ -86,30 +99,30 @@ export default function RefundsPage() {
       reason: newRefund.reason,
       status: newRefund.status,
       description: newRefund.description,
-      processedDate: new Date().toISOString(),
     }
 
-    const updatedRefunds = [...refunds, refund]
-    saveRefunds(updatedRefunds)
-
-    setNewRefund({
-      customerId: "",
-      customerName: "",
-      propertyTitle: "",
-      amount: "",
-      date: new Date().toISOString().split("T")[0],
-      reason: "Overpayment",
-      status: "Pending",
-      description: "",
-    })
+    const response = await httpPost("", "/api/v1/refunds", refundData)
+    if (response) {
+      setRefunds((prevRefunds) => [...prevRefunds, response])
+      setNewRefund({
+        customerId: "",
+        customerName: "",
+        propertyTitle: "",
+        amount: "",
+        date: new Date().toISOString().split("T")[0],
+        reason: "Overpayment",
+        status: "Pending",
+        description: "",
+      })
+    }
   }
 
-  const handleBulkUpload = (e) => {
+  const handleBulkUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const csv = event.target?.result
       const lines = csv.split("\n")
       const newRefunds = []
@@ -118,8 +131,6 @@ export default function RefundsPage() {
         const values = lines[i].split(",").map((v) => v.trim())
         if (values.length >= 6 && values[0]) {
           const refund = {
-            id: Date.now().toString() + i,
-            customerId: "",
             customerName: values[0] || "",
             propertyTitle: values[1] || "",
             amount: Number.parseFloat(values[2]) || 0,
@@ -127,22 +138,27 @@ export default function RefundsPage() {
             reason: values[4] || "Overpayment",
             status: values[5] || "Pending",
             description: values[6] || "",
-            processedDate: new Date().toISOString(),
           }
           newRefunds.push(refund)
         }
       }
 
-      const updatedRefunds = [...refunds, ...newRefunds]
-      saveRefunds(updatedRefunds)
+      const response = await httpPost("", "/api/v1/refunds/bulk", newRefunds)
+      if (response) {
+        setRefunds((prevRefunds) => [...prevRefunds, ...response])
+      }
     }
 
     reader.readAsText(file)
   }
 
-  const updateRefundStatus = (refundId, newStatus) => {
-    const updatedRefunds = refunds.map((refund) => (refund.id === refundId ? { ...refund, status: newStatus } : refund))
-    saveRefunds(updatedRefunds)
+  const updateRefundStatus = async (refundId, newStatus) => {
+    const response = await httpPatch("", `/api/v1/refunds/${refundId}`, { status: newStatus })
+    if (response) {
+      setRefunds((prevRefunds) =>
+        prevRefunds.map((refund) => (refund.id === refundId ? { ...refund, status: newStatus } : refund))
+      )
+    }
   }
 
   const getOverpayments = () => {
