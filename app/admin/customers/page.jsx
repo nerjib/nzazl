@@ -25,6 +25,7 @@ export default function AdminCustomersPage() {
     size: 20,
     page: 1
   })
+  const [ippisSearchTerm, setIppisSearchTerm] = useState("");
   const [newCustomer, setNewCustomer] = useState({
     name: "",
     email: "",
@@ -59,9 +60,13 @@ export default function AdminCustomersPage() {
     }
     getCustomer();
     getStat();
-  }, [router])
+  }, [router, ippisSearchTerm])
 
   const  getCustomer = async () => {
+    if (ippisSearchTerm.trim() !== "") {
+      // If there's an active IPPIS search, do not fetch all customers
+      return;
+    }
     const res = await axios.get(`${customBaseUrl.baseUrl}/api/v1/customers/all`)
 
     if(res.data.status) {
@@ -86,6 +91,28 @@ export default function AdminCustomersPage() {
       setStat(res.data.data)
     }
   }
+
+  const handleIppisSearch = async () => {
+    if (ippisSearchTerm.trim() === "") {
+      // If search term is empty, fetch all customers
+      getCustomer();
+      return;
+    }
+    try {
+      const res = await axios.get(`${customBaseUrl.baseUrl}/api/v1/payments/single/customer/${ippisSearchTerm}`);
+      if (res.data.status) {
+        setCustomers(res.data.data); // Assuming the API returns a single customer object
+        setPaginatedUsers(res.data.data);
+      } else {
+        setCustomers([]);
+        setPaginatedUsers([]);
+      }
+    } catch (error) {
+      console.error("Error fetching customer by IPPIS:", error);
+      setCustomers([]);
+      setPaginatedUsers([]);
+    }
+  };
 
   const saveCustomers = (updatedCustomers) => {
     setCustomers(updatedCustomers)
@@ -228,6 +255,15 @@ export default function AdminCustomersPage() {
                 <CardHeader>
                   <CardTitle>All Customers ({stat.allCustomers})</CardTitle>
                   <CardDescription>Manage your customer database</CardDescription>
+                  <div className="flex items-center space-x-2">
+                    <Input
+                      placeholder="Search by IPPIS"
+                      className="max-w-sm"
+                      value={ippisSearchTerm}
+                      onChange={(e) => setIppisSearchTerm(e.target.value)}
+                    />
+                    <Button onClick={handleIppisSearch}>Search</Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <Table>

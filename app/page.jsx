@@ -62,14 +62,14 @@ export default function LandingPage() {
 
   const testimonials = [
     {
-      name: "Amina Hassan",
+      name: "Awwal Salisu",
       role: "Property Owner",
       content:
         "NMS Zazzau Properties has made managing my land investments so much easier. The payment tracking is excellent!",
       rating: 5,
     },
     {
-      name: "Ibrahim Musa",
+      name: "Bala Musa",
       role: "Real Estate Investor",
       content: "The customer portal is fantastic. I can download all my payment records anytime I need them.",
       rating: 5,
@@ -116,7 +116,7 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <Badge className="mb-4 bg-blue-100 text-blue-800 hover:bg-blue-100">
-                Trusted Property Management Platform
+                {/* Trusted Property Management Platform */}
               </Badge>
               <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 mb-6">
                 Your Trusted Partner in <span className="text-blue-600">Land & Property</span> Management
@@ -351,7 +351,7 @@ export default function LandingPage() {
               <ul className="space-y-2 text-gray-400">
                 <li>📍 Zaria, Kaduna State, Nigeria</li>
                 <li>📞 +234 (0) 123 456 7890</li>
-                <li>✉️ info@zazzauproperties.com</li>
+                <li>✉️ info@nmszazzau.com.ng</li>
                 <li>🕒 Mon - Fri: 9AM - 6PM</li>
               </ul>
             </div>

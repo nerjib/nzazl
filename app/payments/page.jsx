@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import axios from "axios"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,8 +14,10 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Building } from "lucide-react"
 import { customBaseUrl } from "@/lib/https"
+import { notification } from "antd"
 
 export default function PaymentsPage() {
+  const router = useRouter()
   const [payments, setPayments] = useState([])
   const [pagination, setPagination] = useState({ page: 0, size: 10 })
   const [analytics, setAnalytics] = useState(null)
@@ -51,11 +54,22 @@ export default function PaymentsPage() {
     if (!file) return
     const formData = new FormData()
     formData.append("file", file)
-    await axios.post(`${customBaseUrl.baseUrl}/api/v1/excel/payments`, formData, {
+    const res = await axios.post(`${customBaseUrl.baseUrl}/api/v1/excel/payments`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
     })
+    if(res.data.status){
+      notification.success({
+        message: "Bulk Upload Successful",
+        description: `payments processed successfully.`,
+      })
+    } else {
+      notification.error({
+        message: "Bulk Upload Failed",
+        description: res.data.message || "An error occurred during bulk upload.",
+      })
+    }
     getPayments()
   }
 
@@ -78,7 +92,7 @@ export default function PaymentsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <Link href="/">
+              <Link href="/admin">
                 <div className="flex items-center">
                   <Building className="h-8 w-8 text-blue-600" />
                   <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties</span>
@@ -119,7 +133,7 @@ export default function PaymentsPage() {
               <TabsTrigger value="list">Payment List</TabsTrigger>
               <TabsTrigger value="add">Add Payment</TabsTrigger>
               <TabsTrigger value="bulk">Bulk Upload</TabsTrigger>
-              <TabsTrigger value="refund">Refund Payment</TabsTrigger>
+              {/* <TabsTrigger value="refund">Refund Payment</TabsTrigger> */}
             </TabsList>
 
             <TabsContent value="list">
@@ -164,7 +178,7 @@ export default function PaymentsPage() {
                     </TableHeader>
                     <TableBody>
                       {payments.map((payment) => (
-                        <TableRow key={payment.ref}>
+                        <TableRow key={payment.ref} onClick={() => router.push(`/admin/customers/${payment.ippis}`)} className="cursor-pointer hover:bg-gray-100">
                           <TableCell>{new Date(payment.period).toLocaleDateString()}</TableCell>
                           <TableCell className="font-medium">{payment.name}</TableCell>
                           <TableCell>{payment.element}</TableCell>
@@ -269,7 +283,7 @@ export default function PaymentsPage() {
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="csvFile">CSV File</Label>
-                      <Input id="csvFile" type="file" accept=".csv" onChange={handleBulkUpload} />
+                      <Input id="csvFile" type="file" accept=".csv/.xlxs" onChange={handleBulkUpload} />
                     </div>
                   </div>
                 </CardContent>

@@ -90,7 +90,7 @@ export default function CustomerProfile() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Customer Not Found</h2>
-          <Link href="/customers">
+          <Link href="/admin/customers">
             <Button>Back to Customers</Button>
           </Link>
         </div>
@@ -108,7 +108,7 @@ export default function CustomerProfile() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <Link href="/">
+              <Link href="/admin">
                 <div className="flex items-center">
                   <Building className="h-8 w-8 text-blue-600" />
                   <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties</span>
@@ -116,7 +116,7 @@ export default function CustomerProfile() {
               </Link>
             </div>
             <div className="flex items-center space-x-4">
-              <Link href="/customers">
+              <Link href="/admin/customers">
                 <Button variant="default">Customers</Button>
               </Link>
               <Link href="/payments">
@@ -133,7 +133,7 @@ export default function CustomerProfile() {
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           <div className="flex items-center mb-8">
-            <Link href="/customers">
+            <Link href="/admin/customers">
               <Button variant="outline" size="sm" className="mr-4">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back

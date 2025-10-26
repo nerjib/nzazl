@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Users, CreditCard, Building, TrendingUp, Layers, LogOut } from "lucide-react"
+import { Building, CreditCard, Layers, LogOut, TrendingUp, Users } from "lucide-react"
+import axios from "axios"
+import { customBaseUrl } from "@/lib/https"
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -35,24 +37,27 @@ export default function AdminDashboard() {
 
     setUser(userData)
 
-    // Load stats from localStorage
-    const customers = JSON.parse(localStorage.getItem("customers") || "[]")
-    const payments = JSON.parse(localStorage.getItem("payments") || "[]")
-    const batches = JSON.parse(localStorage.getItem("paymentBatches") || "[]")
-    const refunds = JSON.parse(localStorage.getItem("refunds") || "[]")
+    const fetchAnalytics = async () => {
+      try {
+        const res = await axios.get(`${customBaseUrl.baseUrl}/api/v1/payments/summary`);
+        if (res.data.status) {
+          const analyticsData = res.data.data;
+          setStats({
+            totalCustomers: analyticsData.totalCustomers || 0,
+            totalPayments: analyticsData.totalPaid || 0,
+            totalProperties: analyticsData.totalProperties || 0,
+            totalRevenue: analyticsData.totalRevenue || 0,
+            totalBatches: analyticsData.totalBatches || 0,
+            totalRefunds: analyticsData.totalRefunded || 0,
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching analytics:", error);
+      }
+    };
 
-    const totalRevenue = payments.reduce((sum, payment) => sum + Number.parseFloat(payment.amount || 0), 0)
-    const totalRefundAmount = refunds.reduce((sum, refund) => sum + Number.parseFloat(refund.amount || 0), 0)
-    const totalProperties = customers.reduce((sum, customer) => sum + (customer.properties?.length || 0), 0)
+    fetchAnalytics();
 
-    setStats({
-      totalCustomers: customers.length,
-      totalPayments: payments.length,
-      totalProperties,
-      totalRevenue: totalRevenue - totalRefundAmount,
-      totalBatches: batches.length,
-      totalRefunds: refunds.length,
-    })
   }, [router])
 
   const handleLogout = () => {
@@ -78,10 +83,10 @@ export default function AdminDashboard() {
               <Link href="/admin/customers">
                 <Button variant="ghost">Customers</Button>
               </Link>
-              <Link href="/admin/payments">
+              <Link href="/payments">
                 <Button variant="ghost">Payments</Button>
               </Link>
-              <Link href="/admin/refunds">
+              <Link href="/refunds">
                 <Button variant="ghost">Refunds</Button>
               </Link>
               <Button variant="outline" onClick={handleLogout}>
@@ -134,7 +139,7 @@ export default function AdminDashboard() {
                 <CreditCard className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats.totalPayments}</div>
+                <div className="text-2xl font-bold">₦{stats.totalPayments.toLocaleString()}</div>
               </CardContent>
             </Card>
 
@@ -154,7 +159,7 @@ export default function AdminDashboard() {
                 <CreditCard className="h-4 w-4 text-red-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-red-600">{stats.totalRefunds}</div>
+                <div className="text-2xl font-bold text-red-600">₦{stats.totalRefunds.toLocaleString()}</div>
               </CardContent>
             </Card>
           </div>
@@ -172,13 +177,13 @@ export default function AdminDashboard() {
                     Manage Customers
                   </Button>
                 </Link>
-                <Link href="/admin/payments">
+                <Link href="/payments">
                   <Button className="w-full justify-start" variant="outline">
                     <CreditCard className="mr-2 h-4 w-4" />
                     Manage Payments
                   </Button>
                 </Link>
-                <Link href="/admin/refunds">
+                <Link href="/refunds">
                   <Button className="w-full justify-start" variant="outline">
                     <CreditCard className="mr-2 h-4 w-4" />
                     Process Refunds

@@ -14,8 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Building, Plus, AlertTriangle, CheckCircle } from "lucide-react"
-import { httpGet, httpPost, httpPatch, customBaseUrl } from "@/lib/https"
+import { httpGet, httpPost, httpPatch, httpPostFormData, customBaseUrl } from "@/lib/https"
 import axios from "axios"
+import { notification } from "antd"
+import Swal from "sweetalert2"
 
 export default function RefundsPage() {
   const searchParams = useSearchParams()
@@ -23,14 +25,13 @@ export default function RefundsPage() {
   const [customers, setCustomers] = useState([])
   const [payments, setPayments] = useState([])
   const [newRefund, setNewRefund] = useState({
-    customerId: "",
-    customerName: "",
-    propertyTitle: "",
+    payment_ippis: "",
+    name: "",
     amount: "",
-    date: new Date().toISOString().split("T")[0],
+    payment_period: new Date().toISOString(),
     reason: "Overpayment",
     status: "Pending",
-    description: "",
+    command: "",
   })
 
   // -----------------------------------------------------------------
@@ -61,27 +62,7 @@ export default function RefundsPage() {
     fetchCustomers()
     fetchPayments()
 
-    // ---- Pre-fill refund form when coming from a customer profile ----
-    const customerId = searchParams.get("customerId")
-    const propertyTitle = searchParams.get("propertyTitle")
-    const amount = searchParams.get("amount")
-
-    if (customerId && propertyTitle && amount) {
-      // We need to ensure customers are loaded before trying to find one
-      // This might require a different approach if customers are not immediately available
-      // For now, we'll assume customers are fetched quickly or handle potential undefined customer
-      const customer = customers.find((c) => c.id === customerId) ?? {}
-
-      setNewRefund((prev) => ({
-        ...prev, // keep any default values
-        customerId,
-        customerName: customer.name ?? "",
-        propertyTitle,
-        amount,
-        reason: "Overpayment",
-      }))
-    }
-  }, []) //  <<–– run only once (dependency list is now empty)
+    }, []) //  <<–– run only once (dependency list is now empty)
 
   
 
@@ -89,67 +70,66 @@ export default function RefundsPage() {
     e.preventDefault()
 
     const selectedCustomer = customers.find((c) => c.id === newRefund.customerId)
-
+    // const { ippis, amount, reason, name, element, command }
     const refundData = {
-      customerId: newRefund.customerId,
-      customerName: selectedCustomer?.name || newRefund.customerName,
-      propertyTitle: newRefund.propertyTitle,
+      ippis: newRefund.payment_ippis,
+      name: newRefund.name,
       amount: Number.parseFloat(newRefund.amount) || 0,
-      date: newRefund.date,
+      period: newRefund.payment_period,
       reason: newRefund.reason,
       status: newRefund.status,
-      description: newRefund.description,
+      command: newRefund.command,
+      element: 'REFUND'
     }
 
-    const response = await httpPost("", "/api/v1/refunds", refundData)
+    const response = await axios.post(`${customBaseUrl.baseUrl}/api/v1/refunds`, refundData)
     if (response) {
       setRefunds((prevRefunds) => [...prevRefunds, response])
       setNewRefund({
-        customerId: "",
-        customerName: "",
-        propertyTitle: "",
+        payment_ippis: "",
+        name: "",
         amount: "",
-        date: new Date().toISOString().split("T")[0],
+        payment_period: new Date().toISOString(),
         reason: "Overpayment",
         status: "Pending",
-        description: "",
+        command: "",
       })
     }
   }
 
   const handleBulkUpload = async (e) => {
     const file = e.target.files?.[0]
+    console.log({file})
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = async (event) => {
-      const csv = event.target?.result
-      const lines = csv.split("\n")
-      const newRefunds = []
+    const formData = new FormData()
+    formData.append("file", file)
 
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map((v) => v.trim())
-        if (values.length >= 6 && values[0]) {
-          const refund = {
-            customerName: values[0] || "",
-            propertyTitle: values[1] || "",
-            amount: Number.parseFloat(values[2]) || 0,
-            date: values[3] || new Date().toISOString().split("T")[0],
-            reason: values[4] || "Overpayment",
-            status: values[5] || "Pending",
-            description: values[6] || "",
-          }
-          newRefunds.push(refund)
-        }
+    const response = await axios.post(`${customBaseUrl.baseUrl}/api/v1/refunds/bulk`, formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       }
+    )
+    if (response.data.status) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Bulk Upload Successful',
+        text: ` refunds processed successfully.`,
+      })
+      notification.success({
+        message: 'Bulk Upload Successful',
+        description: ` refunds processed successfully.`,
+      })
 
-      const response = await httpPost("", "/api/v1/refunds/bulk", newRefunds)
-      if (response) {
-        setRefunds((prevRefunds) => [...prevRefunds, ...response])
-      }
+      // setRefunds((prevRefunds) => [...prevRefunds, ...response.data.data])
+    } else{
+      notification.error({
+        message: 'Bulk Upload Failed',
+        description: response.data.message || 'An error occurred during bulk upload.',
+      })
     }
-
-    reader.readAsText(file)
   }
 
   const updateRefundStatus = async (refundId, newStatus) => {
@@ -161,53 +141,9 @@ export default function RefundsPage() {
     }
   }
 
-  const getOverpayments = () => {
-    const overpayments = []
-
-    customers.forEach((customer) => {
-      const customerPayments = payments.filter((p) => p.customerId === customer.id)
-      const propertyPayments = {}
-
-      // Group payments by property
-      customerPayments.forEach((payment) => {
-        if (!propertyPayments[payment.propertyTitle]) {
-          propertyPayments[payment.propertyTitle] = {
-            totalPaid: 0,
-            expectedAmount: 0,
-          }
-        }
-        propertyPayments[payment.propertyTitle].totalPaid += payment.amount
-      })
-
-      // Set expected amounts from customer properties
-      customer.properties.forEach((property) => {
-        if (propertyPayments[property.title]) {
-          propertyPayments[property.title].expectedAmount = property.price
-        }
-      })
-
-      // Find overpayments
-      Object.entries(propertyPayments).forEach(([propertyTitle, data]) => {
-        if (data.totalPaid > data.expectedAmount && data.expectedAmount > 0) {
-          overpayments.push({
-            customerId: customer.id,
-            customerName: customer.name,
-            propertyTitle,
-            overpaidAmount: data.totalPaid - data.expectedAmount,
-            totalPaid: data.totalPaid,
-            expectedAmount: data.expectedAmount,
-          })
-        }
-      })
-    })
-
-    return overpayments
-  }
-
-  const overpayments = getOverpayments()
   const totalRefunds = refunds.reduce((sum, refund) => sum + refund.amount, 0)
-  const pendingRefunds = refunds.filter((r) => r.status === "Pending").length
-  const completedRefunds = refunds.filter((r) => r.status === "Completed").length
+  const pendingRefunds = refunds.filter((r) => r.status === "pending").length
+  const completedRefunds = refunds.filter((r) => r.status === "processed").length
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -215,7 +151,7 @@ export default function RefundsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <Link href="/">
+              <Link href="/admin">
                 <div className="flex items-center">
                   <Building className="h-8 w-8 text-blue-600" />
                   <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties</span>
@@ -223,7 +159,7 @@ export default function RefundsPage() {
               </Link>
             </div>
             <div className="flex items-center space-x-4">
-              <Link href="/customers">
+              <Link href="/admin/customers">
                 <Button variant="ghost">Customers</Button>
               </Link>
               <Link href="/payments">
@@ -253,33 +189,9 @@ export default function RefundsPage() {
             </div>
           </div>
 
-          {/* Overpayment Alerts */}
-          {overpayments.length > 0 && (
-            <Alert className="mb-6 border-orange-200 bg-orange-50">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                <div className="font-medium text-orange-800 mb-2">
-                  {overpayments.length} customer(s) have overpayments that may require refunds:
-                </div>
-                <div className="space-y-1">
-                  {overpayments.slice(0, 3).map((overpayment, index) => (
-                    <div key={index} className="text-sm text-orange-700">
-                      • {overpayment.customerName} - {overpayment.propertyTitle}: ₦
-                      {overpayment.overpaidAmount.toLocaleString()} overpaid
-                    </div>
-                  ))}
-                  {overpayments.length > 3 && (
-                    <div className="text-sm text-orange-700">... and {overpayments.length - 3} more</div>
-                  )}
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-
           <Tabs defaultValue="list" className="space-y-6">
             <TabsList>
               <TabsTrigger value="list">Refund List</TabsTrigger>
-              <TabsTrigger value="overpayments">Detected Overpayments</TabsTrigger>
               <TabsTrigger value="add">Process Refund</TabsTrigger>
               <TabsTrigger value="bulk">Bulk Upload</TabsTrigger>
             </TabsList>
@@ -295,8 +207,9 @@ export default function RefundsPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Property</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Payment IPPIS</TableHead>
+                        <TableHead>Command</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Reason</TableHead>
                         <TableHead>Status</TableHead>
@@ -306,17 +219,18 @@ export default function RefundsPage() {
                     <TableBody>
                       {refunds.map((refund) => (
                         <TableRow key={refund.id}>
-                          <TableCell>{new Date(refund.date).toLocaleDateString()}</TableCell>
-                          <TableCell className="font-medium">{refund.customerName}</TableCell>
-                          <TableCell>{refund.propertyTitle}</TableCell>
+                          <TableCell>{new Date(refund.payment_period).toLocaleDateString()}</TableCell>
+                          <TableCell className="font-medium">{refund.name}</TableCell>
+                          <TableCell>{refund.payment_ippis}</TableCell>
+                          <TableCell>{refund.command}</TableCell>
                           <TableCell className="text-red-600">₦{refund.amount.toLocaleString()}</TableCell>
                           <TableCell>{refund.reason}</TableCell>
                           <TableCell>
                             <Badge
                               variant={
-                                refund.status === "Completed"
+                                refund.status === "processed"
                                   ? "default"
-                                  : refund.status === "Pending"
+                                  : refund.status === "pending"
                                     ? "secondary"
                                     : "destructive"
                               }
@@ -325,7 +239,7 @@ export default function RefundsPage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {refund.status === "Pending" && (
+                            {refund.status === "pending" && (
                               <div className="flex space-x-2">
                                 <Button
                                   size="sm"
@@ -358,64 +272,7 @@ export default function RefundsPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="overpayments">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Detected Overpayments ({overpayments.length})</CardTitle>
-                  <CardDescription>Customers who have paid more than the property price</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Property</TableHead>
-                        <TableHead>Expected Amount</TableHead>
-                        <TableHead>Total Paid</TableHead>
-                        <TableHead>Overpaid Amount</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {overpayments.map((overpayment, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="font-medium">{overpayment.customerName}</TableCell>
-                          <TableCell>{overpayment.propertyTitle}</TableCell>
-                          <TableCell>₦{overpayment.expectedAmount.toLocaleString()}</TableCell>
-                          <TableCell>₦{overpayment.totalPaid.toLocaleString()}</TableCell>
-                          <TableCell className="text-red-600 font-medium">
-                            ₦{overpayment.overpaidAmount.toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                setNewRefund({
-                                  ...newRefund,
-                                  customerId: overpayment.customerId,
-                                  customerName: overpayment.customerName,
-                                  propertyTitle: overpayment.propertyTitle,
-                                  amount: overpayment.overpaidAmount.toString(),
-                                  reason: "Overpayment",
-                                })
-                              }}
-                            >
-                              Process Refund
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  {overpayments.length === 0 && (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                      No overpayments detected. All customer payments are within expected amounts.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
+            
 
             <TabsContent value="add">
               <Card>
@@ -427,46 +284,30 @@ export default function RefundsPage() {
                   <form onSubmit={handleAddRefund} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="customer">Customer</Label>
-                        <Select
-                          value={newRefund.customerId}
-                          onValueChange={(value) => {
-                            const customer = customers.find((c) => c.id === value)
-                            setNewRefund({
-                              ...newRefund,
-                              customerId: value,
-                              customerName: customer?.name || "",
-                            })
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select customer" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {customers.map((customer) => (
-                              <SelectItem key={customer.id} value={customer.id}>
-                                {customer.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {!newRefund.customerId && (
-                          <Input
-                            className="mt-2"
-                            placeholder="Or enter customer name manually"
-                            value={newRefund.customerName}
-                            onChange={(e) => setNewRefund({ ...newRefund, customerName: e.target.value })}
-                          />
-                        )}
+                        <Label htmlFor="name">Customer Name *</Label>
+                        <Input
+                          id="name"
+                          value={newRefund.name}
+                          onChange={(e) => setNewRefund({ ...newRefund, name: e.target.value })}
+                          required
+                        />
                       </div>
 
                       <div>
-                        <Label htmlFor="propertyTitle">Property Title *</Label>
+                        <Label htmlFor="payment_ippis">Payment IPPIS</Label>
                         <Input
-                          id="propertyTitle"
-                          value={newRefund.propertyTitle}
-                          onChange={(e) => setNewRefund({ ...newRefund, propertyTitle: e.target.value })}
-                          required
+                          id="payment_ippis"
+                          value={newRefund.payment_ippis}
+                          onChange={(e) => setNewRefund({ ...newRefund, payment_ippis: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="command">Command</Label>
+                        <Input
+                          id="command"
+                          value={newRefund.command}
+                          onChange={(e) => setNewRefund({ ...newRefund, command: e.target.value })}
                         />
                       </div>
 
@@ -482,12 +323,12 @@ export default function RefundsPage() {
                       </div>
 
                       <div>
-                        <Label htmlFor="date">Refund Date *</Label>
+                        <Label htmlFor="payment_period">Refund Date *</Label>
                         <Input
-                          id="date"
+                          id="payment_period"
                           type="date"
-                          value={newRefund.date}
-                          onChange={(e) => setNewRefund({ ...newRefund, date: e.target.value })}
+                          value={new Date(newRefund.payment_period).toISOString().split("T")[0]}
+                          onChange={(e) => setNewRefund({ ...newRefund, payment_period: e.target.value })}
                           required
                         />
                       </div>
@@ -520,23 +361,15 @@ export default function RefundsPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Pending">Pending</SelectItem>
-                            <SelectItem value="Completed">Completed</SelectItem>
-                            <SelectItem value="Rejected">Rejected</SelectItem>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="processed">Processed</SelectItem>
+                            <SelectItem value="rejected">Rejected</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                     </div>
 
-                    <div>
-                      <Label htmlFor="description">Description</Label>
-                      <Textarea
-                        id="description"
-                        value={newRefund.description}
-                        onChange={(e) => setNewRefund({ ...newRefund, description: e.target.value })}
-                        placeholder="Additional notes about the refund"
-                      />
-                    </div>
+                    {/* Removed description field as it's not in the new API response */}
 
                     <Button type="submit" className="w-full">
                       <Plus className="h-4 w-4 mr-2" />
@@ -560,15 +393,15 @@ export default function RefundsPage() {
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="csvFile">CSV File</Label>
-                      <Input id="csvFile" type="file" accept=".csv" onChange={handleBulkUpload} />
+                      <Input id="csvFile" type="file" accept=".xlsx" onChange={handleBulkUpload} />
                     </div>
                     <div className="bg-gray-50 p-4 rounded-lg">
-                      <h4 className="font-medium mb-2">CSV Format Example:</h4>
-                      <code className="text-sm">
+                      {/* <h4 className="font-medium mb-2">CSV Format Example:</h4> */}
+                      {/* <code className="text-sm">
                         Customer Name,Property Title,Amount,Date,Reason,Status,Description
                         <br />
                         John Doe,Plot 1,50000,2024-01-15,Overpayment,Pending,Refund for overpayment
-                      </code>
+                      </code> */}
                     </div>
                   </div>
                 </CardContent>

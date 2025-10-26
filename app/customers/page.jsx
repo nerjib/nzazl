@@ -121,7 +121,7 @@ export default function CustomersPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <Link href="/">
+              <Link href="/admin">
                 <div className="flex items-center">
                   <Building className="h-8 w-8 text-blue-600" />
                   <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties</span>
@@ -129,7 +129,7 @@ export default function CustomersPage() {
               </Link>
             </div>
             <div className="flex items-center space-x-4">
-              <Link href="/customers">
+              <Link href="/admin/customers">
                 <Button variant="default">Customers</Button>
               </Link>
               <Link href="/payments">

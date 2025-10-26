@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Building, ArrowLeft, Mail, Phone, MapPin, AlertTriangle, LogOut } from "lucide-react"
+import { Building, ArrowLeft, Mail, Phone, MapPin, AlertTriangle, LogOut } from "lucide-react";
+import { PDFDownloadLink } from "@react-pdf/renderer";
+import StatementOfAccountPDF from "./StatementOfAccountPDF";
 import axios from "axios"
 import { customBaseUrl } from "@/lib/https"
 
@@ -51,11 +53,17 @@ export default function AdminCustomerProfile() {
         const plotsRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/customers/plots/${customerIppis}`)
         setPlots(plotsRes.data.data)
 
+        const refundsRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/refunds/${customerIppis}`)
+        setRefunds(refundsRes.data.data)
+
+        const profileRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/customers/profile/${customerIppis}`)
+        // setCustomer(profileRes.data.data)
       } catch (error) {
         console.error("Error fetching customer data:", error)
         setCustomer(null)
         setPayments([])
         setPlots([])
+        setRefunds([])
       }
     }
 
@@ -128,6 +136,7 @@ export default function AdminCustomerProfile() {
   }
 
   const totalPayments = payments.reduce((sum, payment) => sum + payment.amount, 0)
+  const totalRefunds = refunds.reduce((sum, payment) => sum + payment.amount, 0)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -146,10 +155,10 @@ export default function AdminCustomerProfile() {
               <Link href="/admin/customers">
                 <Button variant="default">Customers</Button>
               </Link>
-              <Link href="/admin/payments">
+              <Link href="/payments">
                 <Button variant="ghost">Payments</Button>
               </Link>
-              <Link href="/admin/refunds">
+              <Link href="/refunds">
                 <Button variant="ghost">Refunds</Button>
               </Link>
               <Button variant="outline" onClick={handleLogout}>
@@ -171,6 +180,19 @@ export default function AdminCustomerProfile() {
               </Button>
             </Link>
             <h1 className="text-3xl font-bold text-gray-900">Customer Profile</h1>
+            <div className="ml-auto">
+              {customer && (
+                <PDFDownloadLink
+                  document={<StatementOfAccountPDF customer={customer} payments={payments} refunds={refunds} />}
+                  fileName={`statement_of_account_${customer?.name}.pdf`}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  {({ blob, url, loading, error }) =>
+                    loading ? 'Loading document...' : 'Print Statement'
+                  }
+                </PDFDownloadLink>
+              )}
+            </div>
           </div>
 
           {/* Overpayment Alert */}
@@ -190,7 +212,7 @@ export default function AdminCustomerProfile() {
                         {overpayment.propertyTitle}: Overpaid by ₦{overpayment.overpaidAmount.toLocaleString()}
                       </span>
                       <Link
-                        href={`/admin/refunds?customerId=${customerId}&propertyTitle=${overpayment.propertyTitle}&amount=${overpayment.overpaidAmount}`}
+                        href={`/refunds?customerId=${customerId}&propertyTitle=${overpayment.propertyTitle}&amount=${overpayment.overpaidAmount}`}
                       >
                         <Button size="sm" variant="outline" className="text-orange-700 border-orange-300">
                           Process Refund
@@ -252,7 +274,7 @@ export default function AdminCustomerProfile() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Total Refunds</span>
-                    {/* <span className="font-medium text-red-600">₦{totalRefunds.toLocaleString()}</span> */}
+                    <span className="font-medium text-red-600">₦{totalRefunds?.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2">
                     <span className="text-sm text-gray-600">Net Amount</span>
@@ -306,26 +328,26 @@ export default function AdminCustomerProfile() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Date</TableHead>
+                          {/* <TableHead>Date</TableHead> */}
                           <TableHead>Period</TableHead>
                           <TableHead>Property</TableHead>
                           <TableHead>Amount</TableHead>
-                          <TableHead>Status</TableHead>
+                          {/* <TableHead>Status</TableHead> */}
                           <TableHead>Command</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {payments.map((payment) => (
                           <TableRow key={payment.id}>
-                            <TableCell>{new Date(payment.createdAt).toLocaleDateString()}</TableCell>
+                            {/* <TableCell>{new Date(payment.createdAt).toLocaleDateString()}</TableCell> */}
                             <TableCell>{new Date(payment.period).toLocaleDateString()}</TableCell>
                             <TableCell>{payment.element}</TableCell>
                             <TableCell>₦{payment.amount.toLocaleString()}</TableCell>
-                            <TableCell>
+                            {/* <TableCell>
                               <Badge variant={payment.status === "Completed" ? "default" : "secondary"}>
                                 {payment.status}
                               </Badge>
-                            </TableCell>
+                            </TableCell> */}
                             <TableCell>{payment.command || "N/A"}</TableCell>
                           </TableRow>
                         ))}
@@ -349,7 +371,7 @@ export default function AdminCustomerProfile() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
-                          <TableHead>Property</TableHead>
+                          {/* <TableHead>Property</TableHead> */}
                           <TableHead>Amount</TableHead>
                           <TableHead>Reason</TableHead>
                           <TableHead>Status</TableHead>
@@ -358,8 +380,8 @@ export default function AdminCustomerProfile() {
                       <TableBody>
                         {refunds.map((refund) => (
                           <TableRow key={refund.id}>
-                            <TableCell>{new Date(refund.date).toLocaleDateString()}</TableCell>
-                            <TableCell>{refund.propertyTitle}</TableCell>
+                            <TableCell>{new Date(refund.payment_period).toLocaleDateString()}</TableCell>
+                            {/* <TableCell>{refund.propertyTitle}</TableCell> */}
                             <TableCell className="text-red-600">₦{refund.amount.toLocaleString()}</TableCell>
                             <TableCell>{refund.reason}</TableCell>
                             <TableCell>
