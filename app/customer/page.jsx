@@ -1,495 +1,804 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Building, Download, LogOut, Mail, Phone, MapPin, FileText } from "lucide-react"
+import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Building,
+  CreditCard,
+  RotateCcw,
+  Wallet,
+  Calendar,
+  Receipt,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  LogOut,
+  Download,
+  RefreshCw,
+  Search,
+  MapPin,
+  ShieldCheck,
+  User,
+  Copy,
+  Check,
+  FileText,
+  Home
+} from "lucide-react";
+import {
+  getCustomerSummary,
+  getCustomerPayments,
+  getCustomerHousePayments,
+  getCustomerRefunds,
+  getCustomerProfile,
+  getCustomerPlots,
+} from "@/services/zazzauPayments";
+
+import DownloadStatementButton from "@/components/DownloadStatementButton";
+
+const formatDate = (dateString) => {
+  if (!dateString) return "N/A";
+  const s = String(dateString).trim();
+  let date = new Date(s);
+  if (!isNaN(date.getTime())) return date.toLocaleDateString("en-NG", { year: "numeric", month: "short", day: "numeric" });
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    date = new Date(s + "-01");
+    if (!isNaN(date.getTime())) return date.toLocaleDateString("en-NG", { year: "numeric", month: "short" });
+  }
+  const normalized = s.replace(" ", "T").replace(" ", "");
+  date = new Date(normalized);
+  return isNaN(date.getTime()) ? s : date.toLocaleDateString("en-NG", { year: "numeric", month: "short", day: "numeric" });
+};
+
+const formatNaira = (amount) =>
+  new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
 
 export default function CustomerDashboard() {
-  const router = useRouter()
-  const [user, setUser] = useState(null)
-  const [customer, setCustomer] = useState(null)
-  const [payments, setPayments] = useState([])
-  const [refunds, setRefunds] = useState([])
+  const router = useRouter();
+
+  // State
+  const [userSession, setUserSession] = useState(null);
+  const [ippis, setIppis] = useState("");
+  const [activeTab, setActiveTab] = useState("payments"); // 'payments' | 'housing' | 'refunds' | 'properties'
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [copiedIppis, setCopiedIppis] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // Data from live endpoints
+  const [summary, setSummary] = useState({ totalPaid: 0, totalLandPaid: 0, totalHousePaid: 0, totalRefunded: 0, netPaid: 0 });
+  const [payments, setPayments] = useState([]);
+  const [housePayments, setHousePayments] = useState([]);
+  const [refunds, setRefunds] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [plots, setPlots] = useState([]);
+
+  // Search & Filters
+  const [paymentSearch, setPaymentSearch] = useState("");
 
   useEffect(() => {
-    // Check authentication
-    const session = localStorage.getItem("userSession")
-    if (!session) {
-      router.push("/login")
-      return
+    setIsClient(true);
+
+    // 1. Authenticate customer from session
+    let sessionData = null;
+    try {
+      const storedSession = localStorage.getItem("userSession");
+      if (storedSession) {
+        sessionData = JSON.parse(storedSession);
+      }
+    } catch (e) {
+      console.error("Error parsing userSession:", e);
     }
 
-    const userData = JSON.parse(session)
-    if (userData.role !== "customer") {
-      router.push("/login")
-      return
+    if (!sessionData) {
+      router.push("/login");
+      return;
     }
 
-    setUser(userData)
+    // Role check: ensure customer role
+    if (sessionData.role && sessionData.role !== "customer") {
+      router.push("/login");
+      return;
+    }
 
-    // For demo purposes, create a sample customer if none exists
-    const customers = JSON.parse(localStorage.getItem("customers") || "[]")
-    let foundCustomer = customers.find((c) => c.email === userData.email)
+    setUserSession(sessionData);
 
-    if (!foundCustomer) {
-      // Create demo customer data
-      foundCustomer = {
-        id: "customer_123",
-        name: userData.name,
-        email: userData.email,
-        phone: "+234 801 234 5678",
-        address: "123 Ahmadu Bello Way, Zaria, Kaduna State",
-        properties: [
-          {
-            id: "prop_1",
-            title: "Residential Plot - Block A, Plot 15",
-            location: "Sabon Gari, Zaria",
-            size: "500 sqm",
-            price: 2500000,
-          },
-          {
-            id: "prop_2",
-            title: "Commercial Plot - Block C, Plot 8",
-            location: "City Centre, Zaria",
-            size: "750 sqm",
-            price: 4500000,
-          },
-        ],
+    // 2. Determine IPPIS number
+    let detectedIppis =
+      sessionData.ippis ||
+      sessionData.userId ||
+      sessionData.email ||
+      sessionData.customerId ||
+      "";
+
+    // Also check "user" object in localStorage as fallback
+    if (!detectedIppis) {
+      try {
+        const storedUser = localStorage.getItem("user");
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          detectedIppis = parsedUser?.ippis || parsedUser?.userId || parsedUser?.email || "";
+        }
+      } catch (e) {
+        console.error("Error reading fallback user from localStorage:", e);
+      }
+    }
+
+    if (!detectedIppis) {
+      setError("Customer IPPIS number could not be determined. Please log in again.");
+      setLoading(false);
+      return;
+    }
+
+    setIppis(detectedIppis);
+    loadAllCustomerData(detectedIppis);
+  }, [router]);
+
+  const loadAllCustomerData = async (targetIppis) => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [sumRes, payRes, houseRes, refRes, profRes, plotsRes] = await Promise.allSettled([
+        getCustomerSummary(targetIppis),
+        getCustomerPayments(targetIppis),
+        getCustomerHousePayments(targetIppis),
+        getCustomerRefunds(targetIppis),
+        getCustomerProfile(targetIppis),
+        getCustomerPlots(targetIppis),
+      ]);
+
+      // Summary
+      if (sumRes.status === "fulfilled") {
+        setSummary(sumRes.value);
+      } else {
+        console.warn("Failed to load summary:", sumRes.reason);
       }
 
-      customers.push(foundCustomer)
-      localStorage.setItem("customers", JSON.stringify(customers))
+      // Land Payments
+      if (payRes.status === "fulfilled") {
+        setPayments(payRes.value);
+      } else {
+        console.warn("Failed to load land payments:", payRes.reason);
+      }
+
+      // Housing Payments
+      if (houseRes.status === "fulfilled") {
+        setHousePayments(houseRes.value);
+      } else {
+        console.warn("Failed to load housing payments:", houseRes.reason);
+      }
+
+      // Refunds
+      if (refRes.status === "fulfilled") {
+        setRefunds(refRes.value);
+      } else {
+        console.warn("Failed to load refunds:", refRes.reason);
+      }
+
+      // Profile
+      if (profRes.status === "fulfilled" && profRes.value) {
+        setProfile(profRes.value);
+      }
+
+      // Plots
+      if (plotsRes.status === "fulfilled") {
+        setPlots(plotsRes.value);
+      }
+    } catch (err) {
+      console.error("Error in loadAllCustomerData:", err);
+      setError("Failed to load financial records. Please check your internet connection and try again.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  };
 
-    setCustomer(foundCustomer)
-
-    // Load or create demo payments
-    const allPayments = JSON.parse(localStorage.getItem("payments") || "[]")
-    let customerPayments = allPayments.filter((p) => p.customerId === foundCustomer.id)
-
-    if (customerPayments.length === 0) {
-      // Create demo payments
-      const demoPayments = [
-        {
-          id: "pay_1",
-          customerId: foundCustomer.id,
-          customerName: foundCustomer.name,
-          propertyTitle: "Residential Plot - Block A, Plot 15",
-          amount: 1000000,
-          date: "2024-01-15",
-          status: "Completed",
-          description: "Initial payment",
-          batchId: "batch_jan_2024",
-        },
-        {
-          id: "pay_2",
-          customerId: foundCustomer.id,
-          customerName: foundCustomer.name,
-          propertyTitle: "Residential Plot - Block A, Plot 15",
-          amount: 800000,
-          date: "2024-02-15",
-          status: "Completed",
-          description: "Second installment",
-          batchId: "batch_feb_2024",
-        },
-        {
-          id: "pay_3",
-          customerId: foundCustomer.id,
-          customerName: foundCustomer.name,
-          propertyTitle: "Commercial Plot - Block C, Plot 8",
-          amount: 2000000,
-          date: "2024-03-10",
-          status: "Completed",
-          description: "Down payment",
-          batchId: "batch_mar_2024",
-        },
-      ]
-
-      allPayments.push(...demoPayments)
-      localStorage.setItem("payments", JSON.stringify(allPayments))
-      customerPayments = demoPayments
-    }
-
-    setPayments(customerPayments)
-
-    // Load refunds
-    const allRefunds = JSON.parse(localStorage.getItem("refunds") || "[]")
-    const customerRefunds = allRefunds.filter((r) => r.customerId === foundCustomer.id)
-    setRefunds(customerRefunds)
-  }, [router])
+  const handleRefresh = () => {
+    if (!ippis) return;
+    setRefreshing(true);
+    loadAllCustomerData(ippis);
+  };
 
   const handleLogout = () => {
-    localStorage.removeItem("userSession")
-    router.push("/")
+    localStorage.removeItem("userSession");
+    localStorage.removeItem("user");
+    router.push("/login");
+  };
+
+  const handleCopyIppis = () => {
+    if (!ippis) return;
+    navigator.clipboard.writeText(ippis);
+    setCopiedIppis(true);
+    setTimeout(() => setCopiedIppis(false), 2000);
+  };
+
+  // Best display customer metadata
+  const customerMeta = useMemo(() => {
+    const firstPayment = payments.length > 0 ? payments[0] : (housePayments.length > 0 ? housePayments[0] : null);
+    return {
+      name: profile?.name || firstPayment?.name || firstPayment?.fullname || userSession?.name || "Customer",
+      ippis: ippis,
+      command: profile?.command || firstPayment?.command || "Kaduna Command",
+      element: profile?.element || firstPayment?.element || "Zazzau Plot Contribution",
+      legacyid: profile?.legacyid || firstPayment?.legacyid || null,
+      phone: userSession?.phone || null,
+      email: userSession?.email || null,
+    };
+  }, [profile, payments, housePayments, userSession, ippis]);
+
+  // Filtered payments (Land)
+  const filteredPayments = useMemo(() => {
+    if (!paymentSearch.trim()) return payments;
+    const q = paymentSearch.toLowerCase();
+    return payments.filter(
+      (p) =>
+        (p.period && p.period.toLowerCase().includes(q)) ||
+        (p.element && p.element.toLowerCase().includes(q)) ||
+        (p.command && p.command.toLowerCase().includes(q)) ||
+        (p.status && p.status.toLowerCase().includes(q)) ||
+        (p.ref && String(p.ref).includes(q))
+    );
+  }, [payments, paymentSearch]);
+
+  // Filtered payments (Housing)
+  const filteredHousePayments = useMemo(() => {
+    if (!paymentSearch.trim()) return housePayments;
+    const q = paymentSearch.toLowerCase();
+    return housePayments.filter(
+      (p) =>
+        (p.period && p.period.toLowerCase().includes(q)) ||
+        (p.element && p.element.toLowerCase().includes(q)) ||
+        (p.command && p.command.toLowerCase().includes(q)) ||
+        (p.status && p.status.toLowerCase().includes(q)) ||
+        (p.ref && String(p.ref).includes(q))
+    );
+  }, [housePayments, paymentSearch]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="relative flex items-center justify-center">
+          <div className="h-16 w-16 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+          <Building className="absolute h-6 w-6 text-blue-600" />
+        </div>
+        <p className="mt-4 text-sm font-medium text-slate-600 animate-pulse">
+          Loading your financial profile & records...
+        </p>
+      </div>
+    );
   }
-
-  const generatePDF = () => {
-    if (!customer || !payments.length) return
-
-    // Create HTML content for PDF
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Payment Record - ${customer.name}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
-          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #2563eb; padding-bottom: 20px; }
-          .company-name { color: #2563eb; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-          .document-title { font-size: 18px; color: #666; }
-          .customer-info { margin: 20px 0; padding: 15px; background-color: #f8fafc; border-radius: 8px; }
-          .info-row { display: flex; margin-bottom: 8px; }
-          .info-label { font-weight: bold; width: 120px; }
-          .properties-section, .payments-section { margin: 30px 0; }
-          .section-title { font-size: 18px; font-weight: bold; color: #2563eb; margin-bottom: 15px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
-          .property-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-          .property-title { font-weight: bold; font-size: 16px; margin-bottom: 8px; }
-          .property-details { color: #666; font-size: 14px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
-          th { background-color: #f8fafc; font-weight: bold; }
-          .amount { font-weight: bold; color: #059669; }
-          .status-completed { background-color: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-          .summary { margin-top: 30px; padding: 20px; background-color: #f0f9ff; border-radius: 8px; }
-          .summary-title { font-size: 16px; font-weight: bold; margin-bottom: 10px; }
-          .footer { margin-top: 40px; text-align: center; color: #666; font-size: 12px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="company-name">🏢 NMS Zazzau Properties</div>
-          <div class="document-title">Payment Record & Property Information</div>
-          <div style="margin-top: 10px; color: #666;">Generated on ${new Date().toLocaleDateString()}</div>
-        </div>
-
-        <div class="customer-info">
-          <h3 style="margin-top: 0; color: #2563eb;">Customer Information</h3>
-          <div class="info-row">
-            <span class="info-label">Name:</span>
-            <span>${customer.name}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Email:</span>
-            <span>${customer.email}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Phone:</span>
-            <span>${customer.phone}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Address:</span>
-            <span>${customer.address}</span>
-          </div>
-        </div>
-
-        <div class="properties-section">
-          <div class="section-title">Properties Owned</div>
-          ${customer.properties
-            .map(
-              (property) => `
-            <div class="property-card">
-              <div class="property-title">${property.title}</div>
-              <div class="property-details">
-                <div><strong>Location:</strong> ${property.location}</div>
-                <div><strong>Size:</strong> ${property.size}</div>
-                <div><strong>Price:</strong> ₦${property.price.toLocaleString()}</div>
-              </div>
-            </div>
-          `,
-            )
-            .join("")}
-        </div>
-
-        <div class="payments-section">
-          <div class="section-title">Payment History</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Property</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${payments
-                .map(
-                  (payment) => `
-                <tr>
-                  <td>${new Date(payment.date).toLocaleDateString()}</td>
-                  <td>${payment.propertyTitle}</td>
-                  <td class="amount">₦${payment.amount.toLocaleString()}</td>
-                  <td><span class="status-completed">${payment.status}</span></td>
-                  <td>${payment.description}</td>
-                </tr>
-              `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="summary">
-          <div class="summary-title">Payment Summary</div>
-          <div class="info-row">
-            <span class="info-label">Total Payments:</span>
-            <span class="amount">₦${payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Number of Transactions:</span>
-            <span>${payments.length}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Properties Count:</span>
-            <span>${customer.properties.length}</span>
-          </div>
-        </div>
-
-        <div class="footer">
-          <p>This document was generated electronically by NMS Zazzau Properties Management System.</p>
-          <p>For inquiries, contact us at info@zazzauproperties.com | +234 (0) 123 456 7890</p>
-        </div>
-      </body>
-      </html>
-    `
-
-    // Create and download PDF
-    const blob = new Blob([htmlContent], { type: "text/html" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `Payment_Record_${customer.name.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.html`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    // Note: In a real application, you would use a proper PDF generation library
-    // like jsPDF, Puppeteer, or a server-side solution
-  }
-
-  if (!user || !customer) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>
-  }
-
-  const totalPayments = payments.reduce((sum, payment) => sum + payment.amount, 0)
-  const totalRefunds = refunds.reduce((sum, refund) => sum + refund.amount, 0)
-  const netPayments = totalPayments - totalRefunds
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm border-b">
+    <div className="min-h-screen bg-slate-50/70 text-slate-800">
+      {/* Top Navigation */}
+      <nav className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <Building className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties - Customer Portal</span>
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
+                <Building className="h-5 w-5" />
+              </div>
+              <div>
+                <span className="text-lg font-bold tracking-tight text-slate-900 block leading-tight">
+                  NMS Zazzau Properties
+                </span>
+                <span className="text-xs text-blue-600 font-medium">Customer Portal</span>
+              </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">Welcome, {user.name}</span>
-              <Button variant="outline" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
+
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2 bg-slate-100/80 px-3 py-1.5 rounded-full text-xs font-medium text-slate-700">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <span>IPPIS: {ippis}</span>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 border-slate-200"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                <span>Refresh</span>
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                className="text-xs text-slate-600 hover:text-red-600 hover:bg-red-50 gap-1.5"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Logout</span>
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">My Dashboard</h1>
-            <Button onClick={generatePDF} className="bg-green-600 hover:bg-green-700">
-              <Download className="h-4 w-4 mr-2" />
-              Download Payment Record (PDF)
+      {/* Main Content Area */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        {/* Error Alert */}
+        {error && (
+          <div className="flex items-start justify-between rounded-xl border border-red-200 bg-red-50/80 p-4 text-sm text-red-800 shadow-xs">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Unable to fetch some financial records</p>
+                <p className="text-red-700 text-xs mt-0.5">{error}</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              className="bg-white hover:bg-red-100 text-red-700 border-red-200 text-xs"
+            >
+              Retry
             </Button>
           </div>
+        )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Customer Info */}
-            <div className="lg:col-span-1">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-blue-600 font-bold text-lg">{customer.name.charAt(0).toUpperCase()}</span>
-                    </div>
-                    {customer.name}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center">
-                    <Mail className="h-4 w-4 text-gray-400 mr-2" />
-                    <span className="text-sm">{customer.email}</span>
-                  </div>
-                  <div className="flex items-center">
-                    <Phone className="h-4 w-4 text-gray-400 mr-2" />
-                    <span className="text-sm">{customer.phone}</span>
-                  </div>
-                  <div className="flex items-start">
-                    <MapPin className="h-4 w-4 text-gray-400 mr-2 mt-0.5" />
-                    <span className="text-sm">{customer.address}</span>
-                  </div>
-                </CardContent>
-              </Card>
+        {/* Customer Profile Banner */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white p-6 sm:p-8 shadow-lg shadow-blue-900/10">
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start sm:items-center gap-4">
+              <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white text-xl font-bold flex-shrink-0 shadow-inner">
+                {customerMeta.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                    {customerMeta.name}
+                  </h1>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Verified Contributor
+                  </span>
+                </div>
 
-              <Card className="mt-6">
-                <CardHeader>
-                  <CardTitle>Payment Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Properties Owned</span>
-                    <span className="font-medium">{customer.properties.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Total Payments</span>
-                    <span className="font-medium text-green-600">₦{totalPayments.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Total Transactions</span>
-                    <span className="font-medium">{payments.length}</span>
-                  </div>
-                  {totalRefunds > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Total Refunds</span>
-                      <span className="font-medium text-red-600">₦{totalRefunds.toLocaleString()}</span>
-                    </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-blue-100/90">
+                  <button
+                    onClick={handleCopyIppis}
+                    className="inline-flex items-center gap-1 hover:text-white transition-colors cursor-pointer group"
+                    title="Click to copy IPPIS"
+                  >
+                    <span>IPPIS: <strong className="text-white font-mono">{customerMeta.ippis}</strong></span>
+                    {copiedIppis ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-300" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+                    )}
+                  </button>
+
+                  {customerMeta.command && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="h-3 w-3 opacity-70" />
+                      {customerMeta.command}
+                    </span>
                   )}
-                  <div className="flex justify-between border-t pt-2">
-                    <span className="text-sm text-gray-600">Net Amount</span>
-                    <span className="font-medium">₦{netPayments.toLocaleString()}</span>
-                  </div>
-                </CardContent>
-              </Card>
+
+                  {customerMeta.legacyid && (
+                    <span className="hidden sm:inline text-blue-200">
+                      Legacy ID: <span className="font-mono">{customerMeta.legacyid}</span>
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs text-blue-200/80 pt-1">
+                  Element: <strong className="text-white font-medium">{customerMeta.element}</strong>
+                </p>
+              </div>
             </div>
 
-            {/* Properties and Payments */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Properties */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>My Properties ({customer.properties.length})</CardTitle>
-                  <CardDescription>Properties you own with NMS Zazzau Properties</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {customer.properties.map((property) => (
-                      <div key={property.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="font-medium text-lg">{property.title}</h3>
-                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                            ₦{property.price.toLocaleString()}
-                          </Badge>
-                        </div>
-                        <div className="text-sm text-gray-600 space-y-1">
-                          <div className="flex items-center">
-                            <MapPin className="h-3 w-3 mr-1" />
-                            {property.location}
-                          </div>
-                          <div>Size: {property.size}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Actions: Statement Download */}
+            <div className="flex flex-wrap items-center gap-3">
+              <DownloadStatementButton
+                customer={customerMeta}
+                payments={payments}
+                housePayments={housePayments}
+                refunds={refunds}
+                summary={summary}
+              />
+            </div>
+          </div>
 
-              {/* Payment History */}
-              <Card>
-                <CardHeader>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <CardTitle>Payment History ({payments.length})</CardTitle>
-                      <CardDescription>All your payment transactions</CardDescription>
-                    </div>
-                    <Button variant="outline" onClick={generatePDF} size="sm">
-                      <FileText className="h-4 w-4 mr-2" />
-                      Export
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Property</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Description</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {payments.map((payment) => (
-                        <TableRow key={payment.id}>
-                          <TableCell>{new Date(payment.date).toLocaleDateString()}</TableCell>
-                          <TableCell className="font-medium">{payment.propertyTitle}</TableCell>
-                          <TableCell className="font-medium text-green-600">
-                            ₦{payment.amount.toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={payment.status === "Completed" ? "default" : "secondary"}>
-                              {payment.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{payment.description}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+          {/* Decorative Background Elements */}
+          <div className="absolute -right-12 -bottom-12 w-64 h-64 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+          <div className="absolute right-1/3 -top-12 w-48 h-48 bg-blue-400/10 rounded-full blur-xl pointer-events-none" />
+        </div>
 
-              {/* Refund History */}
-              {refunds.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Refund History ({refunds.length})</CardTitle>
-                    <CardDescription>Refunds processed for your account</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Property</TableHead>
-                          <TableHead>Amount</TableHead>
-                          <TableHead>Reason</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {refunds.map((refund) => (
-                          <TableRow key={refund.id}>
-                            <TableCell>{new Date(refund.date).toLocaleDateString()}</TableCell>
-                            <TableCell>{refund.propertyTitle}</TableCell>
-                            <TableCell className="text-red-600 font-medium">
-                              ₦{refund.amount.toLocaleString()}
-                            </TableCell>
-                            <TableCell>{refund.reason}</TableCell>
-                            <TableCell>
-                              <Badge variant={refund.status === "Completed" ? "default" : "secondary"}>
-                                {refund.status}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              )}
+        {/* Financial Stat Cards (4-column breakdown: Land, Housing, Refunded, Net) */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Total Land Paid */}
+          <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Land Deductions
+              </span>
+              <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <CreditCard className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 text-2xl font-bold tracking-tight text-slate-900 font-mono">
+              {formatNaira(summary.totalLandPaid)}
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>{payments.length} monthly deductions</span>
+              <span className="text-blue-600 font-medium">Land Scheme</span>
+            </div>
+          </div>
+
+          {/* Total Housing Paid */}
+          <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Housing Deductions
+              </span>
+              <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                <Home className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 text-2xl font-bold tracking-tight text-indigo-600 font-mono">
+              {formatNaira(summary.totalHousePaid)}
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>{housePayments.length} monthly deductions</span>
+              <span className="text-indigo-600 font-medium">Housing Scheme</span>
+            </div>
+          </div>
+
+          {/* Total Refunded */}
+          <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Total Refunded
+              </span>
+              <div className="rounded-xl bg-amber-50 p-2.5 text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                <RotateCcw className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 text-2xl font-bold tracking-tight text-amber-600 font-mono">
+              {formatNaira(summary.totalRefunded)}
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>{refunds.length} refund adjustments</span>
+              <span className="text-amber-600 font-medium">Processed</span>
+            </div>
+          </div>
+
+          {/* Net Contribution */}
+          <div className="group rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/50 to-white p-5 shadow-xs hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
+                Net Contribution
+              </span>
+              <div className="rounded-xl bg-emerald-100 p-2.5 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                <Wallet className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 text-2xl font-bold tracking-tight text-emerald-700 font-mono">
+              {formatNaira(summary.netPaid)}
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>Combined net balance</span>
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                <Check className="h-3 w-3" /> Active Balance
+              </span>
             </div>
           </div>
         </div>
+
+        {/* Tab Controls */}
+        <div className="border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setActiveTab("payments")}
+              className={`pb-3 text-sm font-semibold transition-all border-b-2 flex items-center gap-2 px-1 ${
+                activeTab === "payments"
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+              }`}
+            >
+              <Receipt className="h-4 w-4" />
+              <span>Land Deductions</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === "payments" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                {payments.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("housing")}
+              className={`pb-3 text-sm font-semibold transition-all border-b-2 flex items-center gap-2 px-1 ${
+                activeTab === "housing"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+              }`}
+            >
+              <Home className="h-4 w-4" />
+              <span>Housing Deductions</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === "housing" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600"}`}>
+                {housePayments.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("refunds")}
+              className={`pb-3 text-sm font-semibold transition-all border-b-2 flex items-center gap-2 px-1 ${
+                activeTab === "refunds"
+                  ? "border-amber-600 text-amber-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+              }`}
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>Refund Records</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === "refunds" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+                {refunds.length}
+              </span>
+            </button>
+
+            {plots.length > 0 && (
+              <button
+                onClick={() => setActiveTab("properties")}
+                className={`pb-3 text-sm font-semibold transition-all border-b-2 flex items-center gap-2 px-1 ${
+                  activeTab === "properties"
+                    ? "border-emerald-600 text-emerald-600"
+                    : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+                }`}
+              >
+                <Building className="h-4 w-4" />
+                <span>Assigned Plots</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === "properties" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                  {plots.length}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {(activeTab === "payments" || activeTab === "housing") && (payments.length > 5 || housePayments.length > 5) && (
+            <div className="relative w-full sm:w-64 pb-2 sm:pb-0">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Search deductions..."
+                value={paymentSearch}
+                onChange={(e) => setPaymentSearch(e.target.value)}
+                className="pl-9 h-9 text-xs rounded-xl border-slate-200"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Tab Content Display */}
+        <div className="rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+          {activeTab === "payments" ? (
+            payments.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="mx-auto h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                  <Receipt className="h-6 w-6" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-900">No land payment deductions recorded</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                  There are currently no land loan deductions associated with IPPIS number{" "}
+                  <strong className="text-slate-700">{ippis}</strong>.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-slate-600">
+                  <thead className="bg-slate-50/80 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-6 py-3.5">Period</th>
+                      <th className="px-6 py-3.5">Description / Element</th>
+                      <th className="px-6 py-3.5">Command</th>
+                      <th className="px-6 py-3.5">Amount</th>
+                      <th className="px-6 py-3.5">Status</th>
+                      <th className="px-6 py-3.5 text-right">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredPayments.map((p, idx) => {
+                      const statusVal = p.status ? p.status.toLowerCase() : "paid";
+                      return (
+                        <tr key={p.ref || `pay-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                              <span>{formatDate(p.period)}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="font-medium text-slate-900">{p.element || "Land Loan Deduction"}</span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500">
+                            {p.command || "-"}
+                          </td>
+                          <td className="px-6 py-4 font-semibold text-slate-900 font-mono whitespace-nowrap">
+                            {formatNaira(p.amount)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
+                                statusVal === "paid"
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
+                                  : statusVal === "partially-refunded"
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200/50"
+                                  : statusVal === "refunded"
+                                  ? "bg-red-50 text-red-700 border border-red-200/50"
+                                  : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {statusVal === "paid" && <CheckCircle2 className="h-3 w-3" />}
+                              {statusVal === "partially-refunded" && <Clock className="h-3 w-3" />}
+                              {statusVal === "refunded" && <AlertCircle className="h-3 w-3" />}
+                              {p.status || "Paid"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-400 font-mono text-right whitespace-nowrap">
+                            #{p.ref || "-"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : activeTab === "housing" ? (
+            housePayments.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="mx-auto h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500">
+                  <Home className="h-6 w-6" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-900">No housing deductions recorded</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                  No monthly housing deduction records have been processed for IPPIS number{" "}
+                  <strong className="text-slate-700">{ippis}</strong> yet.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-slate-600">
+                  <thead className="bg-slate-50/80 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-6 py-3.5">Period</th>
+                      <th className="px-6 py-3.5">Housing Scheme / Element</th>
+                      <th className="px-6 py-3.5">Command</th>
+                      <th className="px-6 py-3.5">Amount</th>
+                      <th className="px-6 py-3.5">Status</th>
+                      <th className="px-6 py-3.5 text-right">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredHousePayments.map((hp, idx) => {
+                      const statusVal = hp.status ? hp.status.toLowerCase() : "paid";
+                      return (
+                        <tr key={hp.id || hp.ref || `hp-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+                              <span>{formatDate(hp.period)}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="font-medium text-slate-900">{hp.element || "Housing Scheme Contribution"}</span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500">
+                            {hp.command || "-"}
+                          </td>
+                          <td className="px-6 py-4 font-semibold text-slate-900 font-mono whitespace-nowrap">
+                            {formatNaira(hp.amount)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
+                                statusVal === "paid"
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
+                                  : "bg-indigo-50 text-indigo-700 border border-indigo-200/50"
+                              }`}
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              {hp.status || "Paid"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-400 font-mono text-right whitespace-nowrap">
+                            #{hp.ref || hp.id || "-"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : activeTab === "refunds" ? (
+            refunds.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="mx-auto h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                  <RotateCcw className="h-6 w-6" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-900">No refunds recorded</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                  No deduction refunds or over-deduction reversals have been processed for this account.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-slate-600">
+                  <thead className="bg-slate-50/80 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-6 py-3.5">Payment Period</th>
+                      <th className="px-6 py-3.5">Refund Amount</th>
+                      <th className="px-6 py-3.5">Reason / Details</th>
+                      <th className="px-6 py-3.5">Status</th>
+                      <th className="px-6 py-3.5 text-right">Processed Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {refunds.map((r, idx) => (
+                      <tr key={r.id || `ref-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                          {formatDate(r.payment_period)}
+                        </td>
+                        <td className="px-6 py-4 font-semibold text-amber-600 font-mono whitespace-nowrap">
+                          {formatNaira(r.amount)}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-slate-700">
+                          {r.reason || "Processed refund deduction"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/50 capitalize">
+                            <CheckCircle2 className="h-3 w-3" />
+                            {r.status || "processed"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-slate-400 text-right whitespace-nowrap">
+                          {r.createdAt ? formatDate(r.createdAt) : r.created_at ? formatDate(r.created_at) : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            // Assigned Plots tab
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {plots.map((plot, idx) => (
+                  <div key={plot.id || `plot-${idx}`} className="border border-slate-200 rounded-xl p-5 hover:bg-slate-50/50 transition-colors space-y-2">
+                    <div className="flex items-start justify-between">
+                      <h4 className="font-semibold text-slate-900 text-base">{plot.title || plot.element || "Residential Plot"}</h4>
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                        {formatNaira(plot.price)}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-slate-500 space-y-1">
+                      {plot.location && (
+                        <div className="flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                          <span>{plot.location}</span>
+                        </div>
+                      )}
+                      {plot.size && <div>Size: {plot.size}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </main>
     </div>
-  )
+  );
 }

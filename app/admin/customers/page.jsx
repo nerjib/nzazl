@@ -286,7 +286,7 @@ export default function AdminCustomersPage() {
                           <TableCell>{customer.site}</TableCell>
                           {/* <TableCell>{customer.properties.length}</TableCell> */}
                           <TableCell>
-                            <Link href={`/admin/customers/${customer.ippis}`}>
+                            <Link href={`/admin/customers/view?id=${customer.ippis}`}>
                               <Button size="sm" variant="outline">
                                 <Eye className="h-4 w-4 mr-1" />
                                 View

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Building, User, Shield, ArrowLeft } from "lucide-react"
-import { customBaseUrl, httpPost} from '../../lib/https'
+import { customBaseUrl, httpPost } from '../../lib/https'
 import axios from "axios"
 
 export default function LoginPage() {
@@ -37,7 +37,7 @@ export default function LoginPage() {
     //     password: formData.password
     //   }
     // )
-    const res = await axios.post(`${customBaseUrl.baseUrl}/api/v1/login`, 
+    const res = await axios.post(`${customBaseUrl.baseUrl}/api/v1/login`,
       {
         email: formData.email,
         password: formData.password
@@ -55,25 +55,26 @@ export default function LoginPage() {
           loginTime: new Date().toISOString(),
           token: res.data.data.token,
           userId: res.data.data.userId,
-          phone: res.data.data.phoneNumber 
+          phone: res.data.data.phoneNumber
         }),
       )
       router.push("/admin")
     } else if (res.data.status) {
       // Store customer session
-      localStorage.setItem(
-        "userSession",
-        JSON.stringify({
-          email: formData.email,
-          role: "customer",
-          customerId: res.data.data.userId,
-          name: res.data.data.fullName,
-          loginTime: new Date().toISOString(),
-          token: res.data.data.token,
-          userId: res.data.data.userId,
-          phone: res.data.data.phoneNumber 
-        }),
-      )
+      const customerIppis = res.data.data.ippis || res.data.data.userId || formData.email;
+      const sessionData = {
+        email: formData.email,
+        role: "customer",
+        customerId: res.data.data.userId,
+        ippis: customerIppis,
+        name: res.data.data.fullName,
+        loginTime: new Date().toISOString(),
+        token: res.data.data.token,
+        userId: res.data.data.userId,
+        phone: res.data.data.phoneNumber
+      };
+      localStorage.setItem("userSession", JSON.stringify(sessionData));
+      localStorage.setItem("user", JSON.stringify({ ...res.data.data, ippis: customerIppis }));
       router.push("/customer")
     } else {
       setError("Invalid credentials. Please check your email, password, and role.")
@@ -137,7 +138,7 @@ export default function LoginPage() {
                 <Input
                   id="email"
                   type={formData.role === 'admin' ? "email" : 'text'}
-                  placeholder={formData.role === 'admin' ? "Enter your email":  "enter your IPPIS"}
+                  placeholder={formData.role === 'admin' ? "Enter your email" : "enter your IPPIS"}
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
@@ -168,7 +169,7 @@ export default function LoginPage() {
             </form>
 
             {/* Demo Credentials */}
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+            {/* <div className="mt-6 p-4 bg-gray-50 rounded-lg">
               <h4 className="font-medium text-sm text-gray-700 mb-2">Demo Credentials:</h4>
               <div className="space-y-2 text-xs text-gray-600">
                 <div>
@@ -178,7 +179,7 @@ export default function LoginPage() {
                   <strong>Customer:</strong> customer@example.com / customer123
                 </div>
               </div>
-            </div>
+            </div> */}
 
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600">

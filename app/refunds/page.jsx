@@ -18,6 +18,30 @@ import { httpGet, httpPost, httpPatch, httpPostFormData, customBaseUrl } from "@
 import axios from "axios"
 import { notification } from "antd"
 import Swal from "sweetalert2"
+import * as XLSX from 'xlsx';
+
+const formatDate = (dateString) => {
+  if (!dateString) return "N/A";
+  const s = String(dateString).trim();
+
+  // 1. Try direct parse — handles full locale strings like
+  //    "Tue Aug 01 2023 01:00:00 GMT+0100 (West Africa Standard Time)"
+  //    and standard ISO strings.
+  let date = new Date(s);
+  if (!isNaN(date.getTime())) return date.toLocaleDateString();
+
+  // 2. Handle "YYYY-MM" (no day) — append "-01" so it becomes a valid date.
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    date = new Date(s + "-01");
+    if (!isNaN(date.getTime())) return date.toLocaleDateString();
+  }
+
+  // 3. Normalize "YYYY-MM-DD HH:MM:SS.mmm +HH:MM" by replacing the first
+  //    space with "T" and removing the second space before the offset.
+  const normalized = s.replace(" ", "T").replace(" ", "");
+  date = new Date(normalized);
+  return isNaN(date.getTime()) ? "N/A" : date.toLocaleDateString();
+};
 
 export default function RefundsPage() {
   const searchParams = useSearchParams()
@@ -33,6 +57,48 @@ export default function RefundsPage() {
     status: "Pending",
     command: "",
   })
+
+  const downloadTemplate = () => {
+    const data = [
+      // Row 1: Title
+      ["BULK REFUND UPLOAD", "", "", "", "", "", ""],
+      // Row 2: Subtitle / Instructions
+      ["Fill in data from Row 5 onwards. Do not modify rows 1–4.", "", "", "", "", "", ""],
+      // Row 3: Empty / Notes
+      ["Period must be a string e.g. 2024-01 (not a date cell). Amount must be a number.", "", "", "", "", "", ""],
+      // Row 4: Column Headers — controller reads data from Row 5+
+      ["IPPIS", "S/N", "Name", "Reason / Element", "Amount", "Period", "Command"],
+      // Row 5+: Sample data rows
+      ["PF0017275", 1, "SANDA GRACE", "Overpayment", 8000, "2024-01", "KADUNA STATE COMMAND"],
+      ["PF0316447", 2, "Jane Smith", "Double deduction", 3000, "2024-02", "MDO"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+
+    // Force Period column (F, index 5) cells to be text to prevent date coercion
+    const dataRows = data.slice(4); // only sample rows
+    dataRows.forEach((_, i) => {
+      const cellRef = XLSX.utils.encode_cell({ r: i + 4, c: 5 });
+      if (ws[cellRef]) {
+        ws[cellRef].t = "s"; // string type
+        ws[cellRef].z = "@"; // text format
+      }
+    });
+
+    // Set column widths for readability
+    ws["!cols"] = [
+      { wch: 14 }, // A: IPPIS
+      { wch: 6  }, // B: S/N
+      { wch: 24 }, // C: Name
+      { wch: 22 }, // D: Reason / Element
+      { wch: 10 }, // E: Amount
+      { wch: 12 }, // F: Period
+      { wch: 28 }, // G: Command
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Refunds");
+    XLSX.writeFile(wb, "refund_template.xlsx");
+  };
 
   // -----------------------------------------------------------------
   // Load initial data & optionally pre-fill the form (runs once)
@@ -141,7 +207,7 @@ export default function RefundsPage() {
     }
   }
 
-  const totalRefunds = refunds.reduce((sum, refund) => sum + refund.amount, 0)
+  const totalRefunds = refunds.reduce((sum, refund) => sum + (Number(refund.amount) || 0), 0)
   const pendingRefunds = refunds.filter((r) => r.status === "pending").length
   const completedRefunds = refunds.filter((r) => r.status === "processed").length
 
@@ -219,11 +285,11 @@ export default function RefundsPage() {
                     <TableBody>
                       {refunds.map((refund) => (
                         <TableRow key={refund.id}>
-                          <TableCell>{new Date(refund.payment_period).toLocaleDateString()}</TableCell>
+                          <TableCell>{formatDate(refund.payment_period)}</TableCell>
                           <TableCell className="font-medium">{refund.name}</TableCell>
                           <TableCell>{refund.payment_ippis}</TableCell>
                           <TableCell>{refund.command}</TableCell>
-                          <TableCell className="text-red-600">₦{refund.amount.toLocaleString()}</TableCell>
+                          <TableCell className="text-red-600">₦{Number(refund.amount || 0).toLocaleString()}</TableCell>
                           <TableCell>{refund.reason}</TableCell>
                           <TableCell>
                             <Badge
@@ -385,15 +451,17 @@ export default function RefundsPage() {
                 <CardHeader>
                   <CardTitle>Bulk Upload Refunds</CardTitle>
                   <CardDescription>
-                    Upload a CSV file with refund data. Format: Customer Name, Property Title, Amount, Date, Reason,
-                    Status, Description
+                    Upload an Excel file (.xlsx) with refund data.
                   </CardDescription>
+                  <Button variant="outline" size="sm" onClick={downloadTemplate} className="mt-2">
+                    Download Excel Template (.xlsx)
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="csvFile">CSV File</Label>
-                      <Input id="csvFile" type="file" accept=".xlsx" onChange={handleBulkUpload} />
+                      <Label htmlFor="excelFile">Excel File (.xlsx)</Label>
+                      <Input id="excelFile" type="file" accept=".xlsx" onChange={handleBulkUpload} />
                     </div>
                     <div className="bg-gray-50 p-4 rounded-lg">
                       {/* <h4 className="font-medium mb-2">CSV Format Example:</h4> */}

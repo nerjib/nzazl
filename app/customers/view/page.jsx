@@ -1,98 +1,86 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, Suspense } from "react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Building, ArrowLeft, Mail, Phone, MapPin, AlertTriangle, LogOut } from "lucide-react";
-import { PDFDownloadLink } from "@react-pdf/renderer";
-import StatementOfAccountPDF from "./StatementOfAccountPDF";
-import axios from "axios"
-import { customBaseUrl } from "@/lib/https"
+import { Building, ArrowLeft, Mail, Phone, MapPin, AlertTriangle } from "lucide-react"
 
-export default function AdminCustomerProfile() {
-  const router = useRouter()
-  const params = useParams()
-  const customerIppis = params.id
-  const [user, setUser] = useState(null)
+const formatDate = (dateString) => {
+  if (!dateString) return "N/A";
+  const s = String(dateString).trim();
+  let date = new Date(s);
+  if (!isNaN(date.getTime())) return date.toLocaleDateString();
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    date = new Date(s + "-01");
+    if (!isNaN(date.getTime())) return date.toLocaleDateString();
+  }
+  const normalized = s.replace(" ", "T").replace(" ", "");
+  date = new Date(normalized);
+  return isNaN(date.getTime()) ? "N/A" : date.toLocaleDateString();
+};
+
+function CustomerProfileContent() {
+  const searchParams = useSearchParams()
+  const customerId = searchParams.get("id")
   const [customer, setCustomer] = useState(null)
   const [payments, setPayments] = useState([])
-  const [plots, setPlots] = useState([])
+  const [refunds, setRefunds] = useState([])
   const [overpayments, setOverpayments] = useState([])
-  const [refunds, setRefunds] = useState([]);
 
   useEffect(() => {
-    // Check authentication
-    const session = localStorage.getItem("userSession")
-    if (!session) {
-      router.push("/login")
-      return
+    if (!customerId) return
+
+    // Load customer data
+    const savedCustomers = localStorage.getItem("customers")
+    if (savedCustomers) {
+      const customers = JSON.parse(savedCustomers)
+      const foundCustomer = customers.find((c) => c.id === customerId)
+      setCustomer(foundCustomer || null)
     }
 
-    const userData = JSON.parse(session)
-    if (userData.role !== "admin") {
-      router.push("/login")
-      return
+    // Load payments for this customer
+    const savedPayments = localStorage.getItem("payments")
+    if (savedPayments) {
+      const allPayments = JSON.parse(savedPayments)
+      const customerPayments = allPayments.filter((p) => p.customerId === customerId)
+      setPayments(customerPayments)
     }
 
-    setUser(userData)
-
-    const fetchCustomerData = async () => {
-      try {
-        // const customerRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/customers/profile/${customerIppis}`)
-        // setCustomer(customerRes.data.data)
-
-        const paymentsRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/payments/customer/${customerIppis}`)
-        setPayments(paymentsRes.data.data)
-        setCustomer(paymentsRes.data.data[0])
-
-        const plotsRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/customers/plots/${customerIppis}`)
-        setPlots(plotsRes.data.data)
-
-        const refundsRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/refunds/${customerIppis}`)
-        setRefunds(refundsRes.data.data)
-
-        const profileRes = await axios.get(`${customBaseUrl.baseUrl}/api/v1/customers/profile/${customerIppis}`)
-        // setCustomer(profileRes.data.data)
-      } catch (error) {
-        console.error("Error fetching customer data:", error)
-        setCustomer(null)
-        setPayments([])
-        setPlots([])
-        setRefunds([])
-      }
+    // Load refunds for this customer
+    const savedRefunds = localStorage.getItem("refunds")
+    if (savedRefunds) {
+      const allRefunds = JSON.parse(savedRefunds)
+      const customerRefunds = allRefunds.filter((r) => r.customerId === customerId)
+      setRefunds(customerRefunds)
     }
-
-    fetchCustomerData()
-
-  }, [customerIppis, router])
+  }, [customerId])
 
   useEffect(() => {
     // Calculate overpayments
-    if (customer && payments.length > 0 && plots.length > 0) {
+    if (customer && payments.length > 0) {
       const propertyPayments = {}
 
       // Group payments by property
       payments.forEach((payment) => {
-        if (!propertyPayments[payment.element]) {
-          propertyPayments[payment.element] = {
+        if (!propertyPayments[payment.propertyTitle]) {
+          propertyPayments[payment.propertyTitle] = {
             totalPaid: 0,
             expectedAmount: 0,
             payments: [],
           }
         }
-        propertyPayments[payment.element].totalPaid += payment.amount
-        propertyPayments[payment.element].payments.push(payment)
+        propertyPayments[payment.propertyTitle].totalPaid += payment.amount
+        propertyPayments[payment.propertyTitle].payments.push(payment)
       })
 
       // Set expected amounts from customer properties
-      plots.forEach((plot) => {
-        if (propertyPayments[plot.element]) {
-          propertyPayments[plot.element].expectedAmount = plot.price
+      customer.properties.forEach((property) => {
+        if (propertyPayments[property.title]) {
+          propertyPayments[property.title].expectedAmount = property.price
         }
       })
 
@@ -111,23 +99,14 @@ export default function AdminCustomerProfile() {
 
       setOverpayments(overpaid)
     }
-  }, [customer, payments, plots])
+  }, [customer, payments])
 
-  const handleLogout = () => {
-    localStorage.removeItem("userSession")
-    router.push("/")
-  }
-
-  if (!user) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>
-  }
-
-  if (!payments) {
+  if (!customer) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Customer Not Found</h2>
-          <Link href="/admin/customers">
+          <Link href="/customers">
             <Button>Back to Customers</Button>
           </Link>
         </div>
@@ -136,7 +115,8 @@ export default function AdminCustomerProfile() {
   }
 
   const totalPayments = payments.reduce((sum, payment) => sum + payment.amount, 0)
-  const totalRefunds = refunds.reduce((sum, payment) => sum + payment.amount, 0)
+  const totalRefunds = refunds.reduce((sum, refund) => sum + refund.amount, 0)
+  const netPayments = totalPayments - totalRefunds
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -147,12 +127,12 @@ export default function AdminCustomerProfile() {
               <Link href="/admin">
                 <div className="flex items-center">
                   <Building className="h-8 w-8 text-blue-600" />
-                  <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties - Admin</span>
+                  <span className="ml-2 text-xl font-bold text-gray-900">NMS Zazzau Properties</span>
                 </div>
               </Link>
             </div>
             <div className="flex items-center space-x-4">
-              <Link href="/admin/customers">
+              <Link href="/customers">
                 <Button variant="default">Customers</Button>
               </Link>
               <Link href="/payments">
@@ -161,10 +141,6 @@ export default function AdminCustomerProfile() {
               <Link href="/refunds">
                 <Button variant="ghost">Refunds</Button>
               </Link>
-              <Button variant="outline" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
             </div>
           </div>
         </div>
@@ -173,26 +149,13 @@ export default function AdminCustomerProfile() {
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           <div className="flex items-center mb-8">
-            <Link href="/admin/customers">
+            <Link href="/customers">
               <Button variant="outline" size="sm" className="mr-4">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back
               </Button>
             </Link>
             <h1 className="text-3xl font-bold text-gray-900">Customer Profile</h1>
-            <div className="ml-auto">
-              {customer && (
-                <PDFDownloadLink
-                  document={<StatementOfAccountPDF customer={customer} payments={payments} refunds={refunds} />}
-                  fileName={`statement_of_account_${customer?.name}.pdf`}
-                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-                >
-                  {({ blob, url, loading, error }) =>
-                    loading ? 'Loading document...' : 'Print Statement'
-                  }
-                </PDFDownloadLink>
-              )}
-            </div>
           </div>
 
           {/* Overpayment Alert */}
@@ -232,28 +195,28 @@ export default function AdminCustomerProfile() {
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-blue-600 font-bold text-lg">{customer?.name.charAt(0).toUpperCase()}</span>
+                      <span className="text-blue-600 font-bold text-lg">{customer.name.charAt(0).toUpperCase()}</span>
                     </div>
-                    {customer?.name}
+                    {customer.name}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {customer?.email && (
+                  {customer.email && (
                     <div className="flex items-center">
                       <Mail className="h-4 w-4 text-gray-400 mr-2" />
-                      <span className="text-sm">{customer?.email}</span>
+                      <span className="text-sm">{customer.email}</span>
                     </div>
                   )}
-                  {customer?.phone && (
+                  {customer.phone && (
                     <div className="flex items-center">
                       <Phone className="h-4 w-4 text-gray-400 mr-2" />
                       <span className="text-sm">{customer.phone}</span>
                     </div>
                   )}
-                  {customer?.command && (
+                  {customer.address && (
                     <div className="flex items-start">
                       <MapPin className="h-4 w-4 text-gray-400 mr-2 mt-0.5" />
-                      <span className="text-sm">{customer.command}</span>
+                      <span className="text-sm">{customer.address}</span>
                     </div>
                   )}
                 </CardContent>
@@ -266,7 +229,7 @@ export default function AdminCustomerProfile() {
                 <CardContent className="space-y-4">
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Properties</span>
-                    {/* <span className="font-medium">{customer?.properties.length}</span> */}
+                    <span className="font-medium">{customer.properties.length}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Total Payments</span>
@@ -274,11 +237,11 @@ export default function AdminCustomerProfile() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Total Refunds</span>
-                    <span className="font-medium text-red-600">₦{totalRefunds?.toLocaleString()}</span>
+                    <span className="font-medium text-red-600">₦{totalRefunds.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2">
                     <span className="text-sm text-gray-600">Net Amount</span>
-                    {/* <span className="font-medium">₦{netPayments.toLocaleString()}</span> */}
+                    <span className="font-medium">₦{netPayments.toLocaleString()}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -289,11 +252,11 @@ export default function AdminCustomerProfile() {
               {/* Properties */}
               <Card>
                 <CardHeader>
-                  {/* <CardTitle>Properties ({customer.properties.length})</CardTitle> */}
+                  <CardTitle>Properties ({customer.properties.length})</CardTitle>
                   <CardDescription>Properties owned by this customer</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {customer?.properties?.length > 0 ? (
+                  {customer.properties.length > 0 ? (
                     <div className="space-y-4">
                       {customer.properties.map((property) => (
                         <div key={property.id} className="border rounded-lg p-4">
@@ -328,27 +291,25 @@ export default function AdminCustomerProfile() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          {/* <TableHead>Date</TableHead> */}
-                          <TableHead>Period</TableHead>
+                          <TableHead>Date</TableHead>
                           <TableHead>Property</TableHead>
                           <TableHead>Amount</TableHead>
-                          {/* <TableHead>Status</TableHead> */}
-                          <TableHead>Command</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Batch</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {payments.map((payment) => (
                           <TableRow key={payment.id}>
-                            {/* <TableCell>{new Date(payment.createdAt).toLocaleDateString()}</TableCell> */}
-                            <TableCell>{new Date(payment.period).toLocaleDateString()}</TableCell>
-                            <TableCell>{payment.element}</TableCell>
+                            <TableCell>{formatDate(payment.date || payment.period)}</TableCell>
+                            <TableCell>{payment.propertyTitle || payment.element}</TableCell>
                             <TableCell>₦{payment.amount.toLocaleString()}</TableCell>
-                            {/* <TableCell>
+                            <TableCell>
                               <Badge variant={payment.status === "Completed" ? "default" : "secondary"}>
                                 {payment.status}
                               </Badge>
-                            </TableCell> */}
-                            <TableCell>{payment.command || "N/A"}</TableCell>
+                            </TableCell>
+                            <TableCell>{payment.batchId || "N/A"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -360,7 +321,7 @@ export default function AdminCustomerProfile() {
               </Card>
 
               {/* Refund History */}
-              {refunds?.length > 0 && (
+              {refunds.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Refund History ({refunds.length})</CardTitle>
@@ -371,7 +332,7 @@ export default function AdminCustomerProfile() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
-                          {/* <TableHead>Property</TableHead> */}
+                          <TableHead>Property</TableHead>
                           <TableHead>Amount</TableHead>
                           <TableHead>Reason</TableHead>
                           <TableHead>Status</TableHead>
@@ -380,8 +341,8 @@ export default function AdminCustomerProfile() {
                       <TableBody>
                         {refunds.map((refund) => (
                           <TableRow key={refund.id}>
-                            <TableCell>{new Date(refund.payment_period).toLocaleDateString()}</TableCell>
-                            {/* <TableCell>{refund.propertyTitle}</TableCell> */}
+                            <TableCell>{formatDate(refund.date || refund.payment_period)}</TableCell>
+                            <TableCell>{refund.propertyTitle}</TableCell>
                             <TableCell className="text-red-600">₦{refund.amount.toLocaleString()}</TableCell>
                             <TableCell>{refund.reason}</TableCell>
                             <TableCell>
@@ -401,5 +362,13 @@ export default function AdminCustomerProfile() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function CustomerProfile() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>}>
+      <CustomerProfileContent />
+    </Suspense>
   )
 }

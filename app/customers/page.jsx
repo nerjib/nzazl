@@ -179,7 +179,7 @@ export default function CustomersPage() {
                           <TableCell>{customer.phone}</TableCell>
                           <TableCell>{customer.properties.length}</TableCell>
                           <TableCell>
-                            <Link href={`/customers/${customer.id}`}>
+                            <Link href={`/customers/view?id=${customer.id}`}>
                               <Button size="sm" variant="outline">
                                 <Eye className="h-4 w-4 mr-1" />
                                 View

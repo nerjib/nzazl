@@ -266,6 +266,32 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* CEO Section */}
+      <section className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">A Message from Our CEO</h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              "Building trust and delivering excellence in every property transaction."
+            </p>
+          </div>
+          <div className="flex flex-col md:flex-row items-center justify-center gap-12">
+            <div className="w-48 h-48 rounded-full overflow-hidden shadow-lg">
+              <img src="/placeholder-user.jpg" alt="CEO Photo" className="w-full h-full object-cover" />
+            </div>
+            <div className="md:w-1/2 text-center md:text-left">
+              <h3 className="text-2xl font-bold text-gray-900 mb-4">Magajin Gari</h3>
+              <p className="text-gray-700 leading-relaxed">
+                As the CEO of NMS Zazzau Properties, I am committed to providing unparalleled service and innovative solutions in land and property management. Our mission is to empower our clients with transparent, efficient, and secure property transactions, fostering long-term relationships built on trust and mutual respect. We believe in leveraging technology to simplify complex processes, ensuring that your investments are managed with the utmost care and professionalism.
+              </p>
+              <p className="text-gray-700 leading-relaxed mt-4">
+                Thank you for choosing NMS Zazzau Properties. We look forward to serving you.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-20 bg-blue-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -349,9 +375,9 @@ export default function LandingPage() {
             <div>
               <h3 className="text-lg font-semibold mb-4">Contact Info</h3>
               <ul className="space-y-2 text-gray-400">
-                <li>📍 Zaria, Kaduna State, Nigeria</li>
+                <li>📍 Kaduna State, Nigeria</li>
                 <li>📞 +234 (0) 123 456 7890</li>
-                <li>✉️ info@nmszazzau.com.ng</li>
+                <li>✉️ info@nmszazzauproperties.com.ng</li>
                 <li>🕒 Mon - Fri: 9AM - 6PM</li>
               </ul>
             </div>
